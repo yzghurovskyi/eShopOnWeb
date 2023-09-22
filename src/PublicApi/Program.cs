@@ -18,18 +18,27 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.ApplicationInsights;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using MinimalApi.Endpoint.Configurations.Extensions;
 using MinimalApi.Endpoint.Extensions;
 
 var builder = WebApplication.CreateBuilder(args);
-
+builder.Services.AddApplicationInsightsTelemetry();// builder.Configuration["APPLICATIONINSIGHTS_CONNECTION_STRING"]);
 builder.Services.AddEndpoints();
 
 // Use to force loading of appsettings.json of test project
 builder.Configuration.AddConfigurationFile("appsettings.test.json");
-builder.Logging.AddConsole();
+//builder.Logging.AddConsole();
+//builder.Logging.AddApplicationInsights();//  builder.Configuration.GetConnectionString("APPLICATIONINSIGHTS_CONNECTION_STRING"));
+builder.Logging.AddApplicationInsights(
+        configureTelemetryConfiguration: (config) =>
+            config.ConnectionString = builder.Configuration.GetConnectionString("APPLICATIONINSIGHTS_CONNECTION_STRING"),
+        configureApplicationInsightsLoggerOptions: (options) => { }
+    );
+builder.Logging.AddFilter<ApplicationInsightsLoggerProvider>("Test", LogLevel.Warning);
+
 
 Microsoft.eShopWeb.Infrastructure.Dependencies.ConfigureServices(builder.Configuration, builder.Services);
 
@@ -75,9 +84,11 @@ builder.Services.AddCors(options =>
     options.AddPolicy(name: CORS_POLICY,
         corsPolicyBuilder =>
         {
-            corsPolicyBuilder.WithOrigins(baseUrlConfig!.WebBase.Replace("host.docker.internal", "localhost").TrimEnd('/'));
+            //corsPolicyBuilder.WithOrigins(baseUrlConfig!.WebBase.Replace("host.docker.internal", "localhost").TrimEnd('/'));
+
             corsPolicyBuilder.AllowAnyMethod();
             corsPolicyBuilder.AllowAnyHeader();
+            corsPolicyBuilder.AllowAnyOrigin();
         });
 });
 
@@ -122,6 +133,7 @@ builder.Services.AddSwaggerGen(c =>
             });
 });
 
+
 var app = builder.Build();
 
 app.Logger.LogInformation("PublicApi App created...");
@@ -146,13 +158,13 @@ using (var scope = app.Services.CreateScope())
         app.Logger.LogError(ex, "An error occurred seeding the DB.");
     }
 }
-
+//throw new Exception("Cannot move further");
 if (app.Environment.IsDevelopment())
 {
     app.UseDeveloperExceptionPage();
 }
 
-app.UseMiddleware<ExceptionMiddleware>();
+//app.UseMiddleware<ExceptionMiddleware>();
 
 app.UseHttpsRedirection();
 

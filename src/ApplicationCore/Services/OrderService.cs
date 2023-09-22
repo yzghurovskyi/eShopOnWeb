@@ -1,6 +1,12 @@
-﻿using System.Linq;
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Net.Http;
+using System.Net.Http.Json;
 using System.Threading.Tasks;
 using Ardalis.GuardClauses;
+using Azure.Identity;
+using Azure.Messaging.ServiceBus;
 using Microsoft.eShopWeb.ApplicationCore.Entities;
 using Microsoft.eShopWeb.ApplicationCore.Entities.BasketAggregate;
 using Microsoft.eShopWeb.ApplicationCore.Entities.OrderAggregate;
@@ -49,5 +55,47 @@ public class OrderService : IOrderService
         var order = new Order(basket.BuyerId, shippingAddress, items);
 
         await _orderRepository.AddAsync(order);
+
+        var content = JsonContent.Create(items.Select(item => new { catalogItemId = item.ItemOrdered.CatalogItemId, units = item.Units }));
+        // Service Bus integration
+        await using var client = new ServiceBusClient("order-items.servicebus.windows.net", new DefaultAzureCredential());
+
+        var sender = client.CreateSender("orders");
+        var message = new ServiceBusMessage(await content.ReadAsStringAsync());
+
+        // Send a message
+        await sender.SendMessageAsync(message);
+
+        
+        var deliveryContent = JsonContent.Create(
+            new OrderDelivery
+            {
+                id = Guid.NewGuid().ToString(),
+                FinalPrice = order.Total(),
+                OrderItems = order.OrderItems.Select(item => new OrderDeliveryItem
+                {
+                    CatalogueItemId = item.ItemOrdered.CatalogItemId,
+                    UnitPrice = item.UnitPrice,
+                    Units = item.Units
+                }).ToList(),
+                ShippingAddress = order.ShipToAddress
+            });
+        await new HttpClient().PostAsync("https://order-items.azurewebsites.net/api/OrderDeliveryProcessor?code=secret", deliveryContent);
+    }
+
+    private class OrderDelivery
+    {
+        public string id { get; set; }
+        public Address ShippingAddress { get; set; }
+
+        public List<OrderDeliveryItem> OrderItems { get; set; }
+        public decimal FinalPrice { get; set; }
+    }
+
+    private class OrderDeliveryItem
+    {
+        public int Units { get; set; }
+        public decimal UnitPrice { get; set; }
+        public int CatalogueItemId { get; set; }
     }
 }
